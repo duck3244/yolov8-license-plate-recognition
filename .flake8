@@ -1,0 +1,18 @@
+# .flake8
+# 코드 스타일 검사 설정
+
+[flake8]
+max-line-length = 88
+extend-ignore =
+    E203,  # whitespace before ':'
+    E501,  # line too long (handled by black)
+    W503,  # line break before binary operator
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .eggs,
+    *.egg-info,
+    .venv,
+    venv

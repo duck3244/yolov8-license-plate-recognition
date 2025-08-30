@@ -1,0 +1,72 @@
+# config.yaml
+# YOLOv8 번호판 인식 시스템 기본 설정
+
+model:
+  yolo_model_path: "yolov8n.pt"
+  confidence_threshold: 0.5
+  device: "auto"  # auto, cpu, cuda, mps
+  batch_size: 16
+
+ocr:
+  tesseract_cmd: null  # null이면 시스템 PATH 사용
+  languages: "kor+eng"
+  psm_modes: [8, 7, 6, 13]
+  char_whitelist: "0123456789가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초코토포호구누두루무부수우주추쿠투푸후"
+
+preprocessing:
+  resize_max_width: 1280
+  enhance_contrast: true
+  denoise: true
+  min_plate_height: 50
+
+database:
+  path: "license_plates.db"
+  backup_interval_hours: 24
+  max_records: 100000
+  auto_cleanup_days: 30
+
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  upload_folder: "uploads"
+  max_file_size: 16  # MB
+  allowed_extensions: [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
+
+realtime:
+  camera_index: 0
+  frame_width: 1280
+  frame_height: 720
+  fps_limit: 30
+  frame_skip: 10
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/license_plate_system.log"
+  max_size_mb: 10
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+notifications:
+  enabled: false
+  email_enabled: false
+  slack_enabled: false
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+  email_username: ""
+  email_password: ""
+  recipients: []
+  slack_webhook_url: ""
+
+security:
+  api_key_required: false
+  api_key: ""
+  rate_limit_per_minute: 60
+  cors_enabled: true
+  allowed_origins: ["*"]
+
+performance:
+  max_workers: 4
+  gpu_memory_fraction: 0.8
+  cache_size: 100
+  enable_gpu_acceleration: true

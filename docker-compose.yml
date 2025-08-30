@@ -1,0 +1,29 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  license-plate-recognition:
+    build: .
+    container_name: yolov8-license-plate
+    ports:
+      - "5000:5000"
+      - "8000:8000"  # 메트릭 포트
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONUNBUFFERED=1
+      - LP_LOG_LEVEL=INFO
+    restart: unless-stopped
+
+    # GPU 지원 (NVIDIA Docker가 설치된 경우)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
