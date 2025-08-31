@@ -1,95 +1,152 @@
 # requirements.txt
-# YOLOv8 번호판 인식 시스템 의존성
+# YOLOv8 번호판 인식 시스템 의존성 (v2.1.0)
 
-# 핵심 라이브러리
-ultralytics>=8.0.0
-opencv-python>=4.5.0
+# ========================================
+# 핵심 라이브러리 (필수)
+# ========================================
+ultralytics>=8.0.0,<9.0.0
+opencv-python>=4.5.0,<5.0.0
 pytesseract>=0.3.8
-Pillow>=8.0.0
-numpy>=1.21.0
+numpy>=1.21.0,<1.25.0
+Pillow>=8.0.0,<=9.5.0  # Pororo 호환성을 위해 상한선 설정
 
-# 딥러닝 프레임워크
-torch>=1.9.0
-torchvision>=0.10.0
+# ========================================
+# 딥러닝 프레임워크 (안정 버전)
+# ========================================
+# PyTorch 1.11.x 권장 (OCR 엔진 호환성)
+torch>=1.11.0,<1.12.0
+torchvision>=0.12.0,<0.13.0
 
+# 또는 최신 CUDA 환경용 (선택사항)
+# torch>=1.13.0,<2.0.0
+# torchvision>=0.14.0,<1.0.0
+
+# ========================================
 # 웹 프레임워크
-flask>=2.0.0
+# ========================================
+flask>=2.0.0,<3.0.0
 gunicorn>=20.1.0
+Werkzeug>=2.0.0,<3.0.0
 
-# 데이터 처리
-pandas>=1.3.0
-matplotlib>=3.3.0
-seaborn>=0.11.0
+# ========================================
+# 데이터 처리 및 시각화
+# ========================================
+pandas>=1.3.0,<2.0.0
+matplotlib>=3.3.0,<4.0.0
+seaborn>=0.11.0,<1.0.0
 
+# ========================================
 # 설정 관리
+# ========================================
 pyyaml>=6.0
 python-dotenv>=0.19.0
 
+# ========================================
 # 모니터링 및 메트릭
+# ========================================
 prometheus-client>=0.12.0
 psutil>=5.8.0
 GPUtil>=1.4.0
 
+# ========================================
 # 네트워킹 및 API
+# ========================================
 requests>=2.25.0
 python-multipart>=0.0.5
 
+# ========================================
 # 백그라운드 작업
+# ========================================
 schedule>=1.1.0
 
-# 개발 및 테스트
-pytest>=6.0.0
-pytest-cov>=3.0.0
-black>=21.0.0
-flake8>=4.0.0
+# ========================================
+# 개발 및 테스트 (선택사항)
+# ========================================
+# pytest>=6.0.0
+# pytest-cov>=3.0.0
+# black>=21.0.0
+# flake8>=4.0.0
 
 # ========================================
-# 고정확도 OCR 엔진들 (선택적 설치)
+# OCR 엔진들 (선택적 설치 - 호환성 검증됨)
 # ========================================
 
 # 1순위: Pororo OCR (한국어 특화 - 최고 정확도)
-# 옵션 1: 가벼운 OCR 전용 버전 (권장)
+# Pillow==9.5.0과 함께 사용 권장
 pororo-ocr>=1.0.2
 
-# 옵션 2: 전체 Pororo 라이브러리 (모든 NLP 기능 포함)
-# 주의: pororo-ocr과 함께 설치하지 마세요
-# pororo>=0.4.2
+# 2순위: EasyOCR (다국어 지원 - 호환 버전)
+# PyTorch 1.11.x와 호환되는 버전
+# easyocr>=1.6.2,<1.7.0
 
-# 2순위: PaddleOCR (다국어 고정확도)
-# paddleocr>=2.6.0
-# paddlepaddle>=2.4.0  # CPU 버전
-# 또는 GPU 버전:
-# paddlepaddle-gpu>=2.4.0
-
-# 3순위: EasyOCR (사용하기 쉬운 OCR)
-# easyocr>=1.6.0
+# 3순위: PaddleOCR (고성능 - 설정 복잡)
+# paddleocr>=2.6.0,<2.8.0
+# paddlepaddle>=2.4.0,<2.6.0  # CPU 버전
+# paddlepaddle-gpu>=2.4.0,<2.6.0  # GPU 버전
 
 # ========================================
-# OCR 엔진 설치 가이드
+# 설치 가이드 및 문제 해결
 # ========================================
 
-# 기본 설치 (Tesseract + pororo-ocr):
+# 기본 설치 (Tesseract + Pororo):
+# pip install -r requirements.txt
+# pip install Pillow==9.5.0  # Pororo 호환성
+
+# EasyOCR 추가 설치:
+# pip install easyocr==1.6.2
+
+# PaddleOCR 추가 설치:
+# pip install paddleocr==2.7.3 paddlepaddle-gpu==2.5.2
+
+# CUDA 11.3 환경용:
+# pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
+
+# CPU 전용 환경:
+# pip install torch==1.11.0+cpu torchvision==0.12.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+
+# ========================================
+# 알려진 호환성 문제 및 해결책
+# ========================================
+
+# 문제 1: Pororo PIL 호환성
+# 해결: pip install Pillow==9.5.0
+
+# 문제 2: EasyOCR PyTorch 호환성
+# 해결: pip install easyocr==1.6.2 torch==1.11.0
+
+# 문제 3: PaddleOCR show_log 파라미터
+# 해결: 코드에서 버전별 분기 처리됨
+
+# 문제 4: 한글 폰트 누락 (Ubuntu/Debian)
+# 해결: sudo apt-get install fonts-nanum fonts-nanum-coding
+
+# ========================================
+# 환경별 권장 설치 명령어
+# ========================================
+
+# Python 3.8 + CUDA 11.3 (권장):
+# conda create -n yolo_lpr python=3.8
+# conda activate yolo_lpr
+# pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
+# pip install -r requirements.txt
+# pip install Pillow==9.5.0 easyocr==1.6.2
+
+# Python 3.9 + CUDA 11.7:
+# pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
 # pip install -r requirements.txt
 
-# 모든 OCR 엔진 설치:
+# CPU 전용:
+# pip install torch==1.11.0+cpu torchvision==0.12.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 # pip install -r requirements.txt
-# pip install paddleocr paddlepaddle
-# pip install easyocr
-
-# GPU 가속 설치:
-# pip install -r requirements.txt
-# pip install paddleocr paddlepaddle-gpu
-# pip install easyocr
-# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # ========================================
 # 선택적 의존성 (프로덕션 환경)
 # ========================================
 
-# PostgreSQL 사용시 주석 해제
+# PostgreSQL 데이터베이스
 # psycopg2-binary>=2.9.0
 
-# Redis 사용시 주석 해제
+# Redis 캐시
 # redis>=4.0.0
 
 # 고급 이미지 처리
@@ -97,3 +154,38 @@ pororo-ocr>=1.0.2
 
 # 성능 모니터링
 # memory-profiler>=0.60.0
+
+# ========================================
+# 검증된 환경 조합
+# ========================================
+
+# 조합 1 (안정성 중시):
+# Python 3.8.x + PyTorch 1.11.0 + CUDA 11.3
+# Pororo OCR + Tesseract
+
+# 조합 2 (성능 중시):
+# Python 3.9.x + PyTorch 1.13.x + CUDA 11.7
+# EasyOCR + PaddleOCR
+
+# 조합 3 (호환성 중시):
+# Python 3.8.x + PyTorch 1.11.0 + CPU
+# Tesseract + Pororo OCR
+
+# ========================================
+# 설치 후 검증 명령어
+# ========================================
+
+# 시스템 검증:
+# python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+# python -c "import cv2; print(f'OpenCV: {cv2.__version__}')"
+# python -c "import pytesseract; print('Tesseract:', pytesseract.get_tesseract_version())"
+
+# OCR 엔진 검증:
+# python -c "import prrocr; print('Pororo OCR 사용 가능')"
+# python -c "import easyocr; print('EasyOCR 사용 가능')"
+
+# CUDA 검증:
+# python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+
+# 전체 시스템 테스트:
+# python main_app.py config validate
