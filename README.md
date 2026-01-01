@@ -50,23 +50,18 @@
 
 ## 🚀 빠른 시작
 
-### 1. 설치
-
-# 2. 가상환경 생성 (권장)
+### 1. 가상환경 생성 (권장)
 conda create -n yolo_lpr python=3.8
 conda activate yolo_lpr
 
-# 3. 기본 의존성 설치
+### 2. 기본 의존성 설치
 pip install -r requirements.txt
 
-# 4. OCR 엔진 설치 (선택)
+### 3. OCR 엔진 설치 (선택)
 pip install pororo-ocr  # 한국어 특화
 pip install easyocr     # 다국어 지원
+
 ```
-
-### 2. 즉시 테스트
-
-```bash
 # 기본 테스트 (Tesseract 사용)
 python main_app.py image your_car_image.jpg
 
@@ -463,3 +458,5 @@ def realtime_monitoring():
                 if plate_text:
                     print(f"실시간 감지: {plate_text}")
 ```
+
+---
