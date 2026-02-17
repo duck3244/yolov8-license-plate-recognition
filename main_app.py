@@ -72,8 +72,8 @@ class LicensePlateSystem:
 
             # 번호판 인식기 초기화 (OCR 엔진 지정)
             self.recognizer = YOLOv8LicensePlateRecognizer(
-                yolo_model_path=getattr(self.config.model, 'yolo_model_path', 'yolov8n.pt'),
-                confidence_threshold=getattr(self.config.model, 'confidence_threshold', 0.5),
+                yolo_model_path=getattr(self.config.model, 'yolo_model_path', 'license_plate_det_yolov8.pt'),
+                confidence_threshold=getattr(self.config.model, 'confidence_threshold', 0.3),
                 ocr_engine=ocr_engine  # OCR 엔진 추가
             )
 
@@ -192,7 +192,7 @@ def main():
     image_parser.add_argument('--no-display', action='store_true', help='결과 표시 안함')
     image_parser.add_argument('--ocr-engine', choices=['auto', 'pororo', 'paddleocr', 'easyocr', 'tesseract'],
                               default='auto', help='사용할 OCR 엔진 (기본값: auto)')
-    image_parser.add_argument('--confidence', type=float, default=0.5, help='YOLO 신뢰도 임계값')
+    image_parser.add_argument('--confidence', type=float, default=0.3, help='YOLO 신뢰도 임계값')
 
     # 설정 관리 명령
     config_parser = subparsers.add_parser('config', help='설정 관리')
@@ -214,6 +214,10 @@ def main():
         return
 
     try:
+        # image 커맨드의 OCR 엔진 설정을 시스템 초기화 전에 반영
+        if args.command == 'image' and hasattr(args, 'ocr_engine'):
+            os.environ['OCR_ENGINE'] = args.ocr_engine
+
         # 시스템 초기화
         system = LicensePlateSystem(args.config)
 
@@ -228,14 +232,6 @@ def main():
 
         elif args.command == 'image':
             # 단일 이미지 처리
-            # OCR 엔진 환경 변수 설정
-            if hasattr(args, 'ocr_engine'):
-                os.environ['OCR_ENGINE'] = args.ocr_engine
-                print(f"🔍 OCR 엔진 설정: {args.ocr_engine}")
-
-            # 시스템 재초기화 (OCR 엔진 변경 반영)
-            system = LicensePlateSystem(args.config)
-
             system.process_image(args.image_path, show_result=not args.no_display)
 
         elif args.command == 'config':

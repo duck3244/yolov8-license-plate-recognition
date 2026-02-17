@@ -14,6 +14,12 @@ import re
 import logging
 from typing import List, Tuple, Optional
 
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
 # 의존성 체크 및 import
 try:
     from ultralytics import YOLO
@@ -69,9 +75,9 @@ class YOLOv8LicensePlateRecognizer:
     """YOLOv8 기반 번호판 인식기 (고급 OpenCV 전처리 포함)"""
 
     def __init__(self,
-                 yolo_model_path: str = 'yolov8n.pt',
+                 yolo_model_path: str = 'license_plate_det_yolov8.pt',
                  tesseract_cmd: Optional[str] = None,
-                 confidence_threshold: float = 0.5,
+                 confidence_threshold: float = 0.3,
                  ocr_engine: str = 'auto',
                  use_advanced_preprocessing: bool = True):
         """
@@ -84,6 +90,18 @@ class YOLOv8LicensePlateRecognizer:
             ocr_engine: OCR 엔진 선택 ('auto', 'pororo', 'paddleocr', 'easyocr', 'tesseract')
             use_advanced_preprocessing: 고급 OpenCV 전처리 사용 여부
         """
+
+        # GPU 메모리 관리
+        if HAS_TORCH and torch.cuda.is_available():
+            try:
+                gpu_memory_fraction = float(os.environ.get('GPU_MEMORY_FRACTION', '0.8'))
+                torch.cuda.set_per_process_memory_fraction(gpu_memory_fraction)
+                logger.info(f"GPU 메모리 fraction 설정: {gpu_memory_fraction}")
+            except Exception as e:
+                logger.warning(f"GPU 메모리 fraction 설정 실패: {e}")
+
+        # 번호판 전용 모델 자동 다운로드 확인
+        yolo_model_path = self._ensure_model_exists(yolo_model_path)
 
         # YOLOv8 모델 로드 (가능한 경우)
         self.yolo_model = None
@@ -132,6 +150,29 @@ class YOLOv8LicensePlateRecognizer:
 
         logger.info(f"OCR 엔진: {self.ocr_engine}")
         logger.info(f"고급 전처리: {'✅' if self.use_advanced_preprocessing else '❌'}")
+
+    def _ensure_model_exists(self, model_path: str) -> str:
+        """번호판 전용 모델 자동 다운로드"""
+        if os.path.exists(model_path):
+            return model_path
+        # yolov8n.pt 같은 기본 ultralytics 모델이면 그대로 사용
+        if model_path.startswith('yolov8'):
+            return model_path
+        try:
+            from huggingface_hub import hf_hub_download
+            logger.info(f"번호판 전용 모델 다운로드 중: {model_path}")
+            downloaded = hf_hub_download(
+                repo_id="yasirfaizahmed/license-plate-object-detection",
+                filename="best.pt",
+                local_dir=".",
+                local_dir_use_symlinks=False
+            )
+            os.rename(downloaded, model_path)
+            logger.info(f"번호판 전용 모델 다운로드 완료: {model_path}")
+            return model_path
+        except Exception as e:
+            logger.warning(f"번호판 전용 모델 다운로드 실패: {e}, yolov8n.pt fallback")
+            return 'yolov8n.pt'
 
     def _setup_ocr_engine(self, preferred_engine: str):
         """OCR 엔진 설정"""
@@ -185,7 +226,7 @@ class YOLOv8LicensePlateRecognizer:
 
         elif preferred_engine == 'easyocr' and HAS_EASYOCR:
             try:
-                self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=True, verbose=False)
+                self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=HAS_TORCH and torch.cuda.is_available(), verbose=False)
                 logger.info("EasyOCR 초기화 완료")
                 return 'easyocr'
             except Exception as e:
@@ -246,7 +287,7 @@ class YOLOv8LicensePlateRecognizer:
             # 3순위: EasyOCR (균형잡힌 성능)
             if HAS_EASYOCR:
                 try:
-                    self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=True, verbose=False)
+                    self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=HAS_TORCH and torch.cuda.is_available(), verbose=False)
                     logger.info("Auto 모드: EasyOCR 선택됨")
                     return 'easyocr'
                 except Exception as e:
@@ -444,7 +485,6 @@ class YOLOv8LicensePlateRecognizer:
             # 최소 문자 수 확인
             if len(matched_contours_idx) >= params['MIN_N_MATCHED']:
                 matched_result_idx.append(matched_contours_idx)
-                break
 
         return matched_result_idx
 
@@ -668,16 +708,174 @@ class YOLOv8LicensePlateRecognizer:
             logger.error(f"기본 전처리 오류: {e}")
             return plate_img
 
+    def _generate_preprocess_variants(self, plate_img: np.ndarray) -> List[np.ndarray]:
+        """다중 전처리 변형 생성 (Tesseract OCR 전용)
+
+        기본 스케일(min 120px): 5가지 변형 × 2(반전) = 10
+        중간 스케일(min 150px): 2가지 변형 × 2(반전) = 4
+        고 스케일(min 300px): 2가지 변형 × 2(반전) = 4
+        초고 스케일(min 450px): 1가지 변형 × 2(반전) = 2
+        총 20개 이미지 반환
+        """
+        # 그레이스케일 변환
+        if len(plate_img.shape) == 3:
+            gray_orig = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_orig = plate_img.copy()
+
+        def _resize_to_min_height(img, min_h):
+            h, w = img.shape[:2]
+            if h < min_h:
+                scale = min_h / h
+                return cv2.resize(img, (int(w * scale), min_h), interpolation=cv2.INTER_CUBIC)
+            return img
+
+        def _apply_clahe_otsu(img):
+            filtered = cv2.bilateralFilter(img, 9, 75, 75)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            cl = clahe.apply(filtered)
+            _, binary = cv2.threshold(cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            return binary
+
+        def _apply_denoise_clahe(img, denoise_h=15):
+            denoised = cv2.fastNlMeansDenoising(img, h=denoise_h)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            cl = clahe.apply(denoised)
+            _, binary = cv2.threshold(cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            return binary
+
+        # --- 기본 스케일 (min 120px) ---
+        gray = _resize_to_min_height(gray_orig, 120)
+        variants = []
+
+        # 1. clahe_otsu: bilateral filter + CLAHE + OTSU
+        try:
+            variants.append(_apply_clahe_otsu(gray))
+        except Exception:
+            variants.append(gray)
+
+        # 2. simple_otsu: 단순 OTSU
+        try:
+            _, v2 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            variants.append(v2)
+        except Exception:
+            variants.append(gray)
+
+        # 3. adaptive: adaptive threshold (작은 블록)
+        try:
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            v3 = cv2.adaptiveThreshold(
+                blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY, 15, 4
+            )
+            variants.append(v3)
+        except Exception:
+            variants.append(gray)
+
+        # 4. sharp_otsu: 샤프닝 + OTSU
+        try:
+            kernel = np.array([[-1, -1, -1],
+                               [-1,  9, -1],
+                               [-1, -1, -1]], dtype=np.float32)
+            sharpened = cv2.filter2D(gray, -1, kernel)
+            _, v4 = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            variants.append(v4)
+        except Exception:
+            variants.append(gray)
+
+        # 5. denoise_clahe: fastNlMeansDenoising + CLAHE + OTSU
+        try:
+            variants.append(_apply_denoise_clahe(gray))
+        except Exception:
+            variants.append(gray)
+
+        # --- 중간 스케일 (min 150px) - 한글 인식 개선용 ---
+        gray_mid = _resize_to_min_height(gray_orig, 150)
+
+        # 6. clahe_otsu at mid scale
+        try:
+            variants.append(_apply_clahe_otsu(gray_mid))
+        except Exception:
+            variants.append(gray_mid)
+
+        # 7. denoise_clahe at mid scale
+        try:
+            variants.append(_apply_denoise_clahe(gray_mid))
+        except Exception:
+            variants.append(gray_mid)
+
+        # --- 고 스케일 (min 300px) - 노이즈 심한 이미지용 ---
+        gray_high = _resize_to_min_height(gray_orig, 300)
+
+        # 8. clahe_otsu at high scale
+        try:
+            variants.append(_apply_clahe_otsu(gray_high))
+        except Exception:
+            variants.append(gray_high)
+
+        # 9. denoise_clahe at high scale
+        try:
+            variants.append(_apply_denoise_clahe(gray_high))
+        except Exception:
+            variants.append(gray_high)
+
+        # --- 초고 스케일 (min 450px) - 극심한 노이즈 이미지용 ---
+        gray_vhigh = _resize_to_min_height(gray_orig, 450)
+
+        # 10. denoise_clahe(h=20) at very high scale
+        try:
+            variants.append(_apply_denoise_clahe(gray_vhigh, denoise_h=20))
+        except Exception:
+            variants.append(gray_vhigh)
+
+        # 각 변형에 흰색 패딩 10px 추가 + 반전 버전 생성
+        result = []
+        for v in variants:
+            padded = cv2.copyMakeBorder(
+                v, top=10, bottom=10, left=10, right=10,
+                borderType=cv2.BORDER_CONSTANT, value=255
+            )
+            result.append(padded)
+            result.append(cv2.bitwise_not(padded))
+
+        return result
+
+    def _score_plate_text(self, text: str) -> int:
+        """한국 번호판 형식 기반 OCR 결과 점수 매기기"""
+        if not text:
+            return 0
+
+        score = len(text)  # 기본: 길수록 좋음
+
+        # 한글 포함 여부
+        if re.search(r'[가-힣]', text):
+            score += 5
+
+        # 뒤 4자리 숫자 패턴
+        if re.search(r'\d{4}$', text):
+            score += 3
+
+        # 완벽한 번호판 패턴 매칭
+        if re.match(r'\d{2,3}[가-힣]\d{4}$', text):
+            score += 10
+
+        return score
+
     def recognize_text(self, plate_img: np.ndarray) -> str:
         """통합 텍스트 인식 - 선택된 OCR 엔진 사용"""
 
         if self.ocr_engine == 'none':
             return "OCR_NOT_AVAILABLE"
 
-        # 전처리
-        processed_img = self.preprocess_plate_region(plate_img)
-
         try:
+            # Tesseract: 다중 전처리 변형 파이프라인
+            if self.ocr_engine == 'tesseract' and HAS_TESSERACT:
+                variants = self._generate_preprocess_variants(plate_img)
+                return self._recognize_with_tesseract_advanced(variants)
+
+            # 다른 OCR 엔진: 기존 단일 전처리 유지
+            processed_img = self.preprocess_plate_region(plate_img)
+
             if self.ocr_engine == 'pororo' and hasattr(self, 'pororo_ocr'):
                 return self._recognize_with_pororo(processed_img)
 
@@ -687,13 +885,11 @@ class YOLOv8LicensePlateRecognizer:
             elif self.ocr_engine == 'easyocr' and hasattr(self, 'easy_reader'):
                 return self._recognize_with_easyocr(processed_img)
 
-            elif self.ocr_engine == 'tesseract' and HAS_TESSERACT:
-                return self._recognize_with_tesseract_advanced(processed_img)
-
             else:
                 # Fallback to tesseract
                 if HAS_TESSERACT:
-                    return self._recognize_with_tesseract_advanced(processed_img)
+                    variants = self._generate_preprocess_variants(plate_img)
+                    return self._recognize_with_tesseract_advanced(variants)
                 else:
                     return "NO_OCR_AVAILABLE"
 
@@ -701,49 +897,46 @@ class YOLOv8LicensePlateRecognizer:
             logger.error(f"OCR 처리 중 오류: {e}")
             return ""
 
-    def _recognize_with_tesseract_advanced(self, plate_img: np.ndarray) -> str:
-        """고급 Tesseract OCR (첨부된 코드 기반)"""
+    def _recognize_with_tesseract_advanced(self, variant_images: List[np.ndarray]) -> str:
+        """다중 변형 기반 Tesseract OCR - 빈도+점수 기반 최적 후보 선택"""
         if not HAS_TESSERACT:
             return "TESSERACT_NOT_AVAILABLE"
 
         try:
-            # 여러 PSM 모드로 시도
-            psm_modes = [7, 8, 6, 13]  # 7: 단일 텍스트 라인, 8: 단일 단어
+            psm_modes = [6, 7, 8]  # 6: 균일 텍스트 블록, 7: 단일 텍스트 라인, 8: 단일 단어
+            # 유효한 번호판 후보들의 빈도 카운트
+            valid_counts = {}
             best_result = ""
-            best_confidence = 0
+            best_score = 0
 
-            for psm in psm_modes:
-                try:
-                    # 한국어 + 영어 설정
-                    config = f'--psm {psm} --oem 0'
+            for img in variant_images:
+                for psm in psm_modes:
+                    try:
+                        config = f'--psm {psm} --oem 1'
+                        text = pytesseract.image_to_string(
+                            img, lang='kor', config=config
+                        ).strip()
 
-                    # 원본 이미지로 시도
-                    text1 = pytesseract.image_to_string(
-                        plate_img,
-                        lang='kor',
-                        config=config
-                    ).strip()
-
-                    # 반전 이미지로도 시도
-                    inverted = cv2.bitwise_not(plate_img)
-                    text2 = pytesseract.image_to_string(
-                        inverted,
-                        lang='kor',
-                        config=config
-                    ).strip()
-
-                    # 더 나은 결과 선택
-                    for text in [text1, text2]:
                         cleaned = self.clean_plate_text_advanced(text)
-                        if self.is_valid_korean_plate(cleaned):
-                            return cleaned
+                        if not cleaned:
+                            continue
 
-                        if len(cleaned) > len(best_result):
+                        score = self._score_plate_text(cleaned)
+
+                        if self.is_valid_korean_plate(cleaned):
+                            valid_counts[cleaned] = valid_counts.get(cleaned, 0) + 1
+
+                        if score > best_score:
+                            best_score = score
                             best_result = cleaned
 
-                except Exception as e:
-                    logger.debug(f"PSM {psm} 모드 실패: {e}")
-                    continue
+                    except Exception as e:
+                        logger.debug(f"PSM {psm} 변형 OCR 실패: {e}")
+                        continue
+
+            # 유효한 번호판 후보가 있으면 가장 빈도 높은 것 반환
+            if valid_counts:
+                return max(valid_counts, key=valid_counts.get)
 
             return best_result
 
@@ -756,11 +949,20 @@ class YOLOv8LicensePlateRecognizer:
         if not text:
             return ""
 
+        # 일반적인 OCR 오류 수정 (한글/숫자 추출 전에 영문 오류 수정)
+        corrections = {
+            'O': '0', 'I': '1', 'l': '1', 'S': '5', 'Z': '2',
+            'B': '8', 'G': '6', 'D': '0', 'Q': '0'
+        }
+        corrected = text
+        for wrong, correct in corrections.items():
+            corrected = corrected.replace(wrong, correct)
+
         result_chars = ''
         has_digit = False
 
         # 한글 문자와 숫자만 추출
-        for c in text:
+        for c in corrected:
             if ord('가') <= ord(c) <= ord('힣') or c.isdigit():
                 if c.isdigit():
                     has_digit = True
@@ -770,14 +972,11 @@ class YOLOv8LicensePlateRecognizer:
         if not has_digit:
             return ""
 
-        # 일반적인 OCR 오류 수정
-        corrections = {
-            'O': '0', 'I': '1', 'l': '1', 'S': '5', 'Z': '2',
-            'B': '8', 'G': '6', 'D': '0', 'Q': '0'
-        }
-
-        for wrong, correct in corrections.items():
-            result_chars = result_chars.replace(wrong, correct)
+        # 번호판 형식에 맞는 부분 문자열 추출 시도
+        # e.g., '54가006032' → '54가0603' 중 '54가0639' 패턴 추출
+        plate_match = re.search(r'\d{2,3}[가-힣]\d{4}', result_chars)
+        if plate_match:
+            return plate_match.group()
 
         return result_chars
 

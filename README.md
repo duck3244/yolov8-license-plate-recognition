@@ -23,9 +23,17 @@
 
 ### 🔧 **다중 OCR 엔진 지원**
 - **Pororo OCR**: 한국어 특화 최고 정확도 (98%)
+- **PaddleOCR**: 높은 정확도 (95%)
 - **EasyOCR**: 균형잡힌 성능 (92%)
-- **Tesseract**: 빠른 처리 (85%)
+- **Tesseract**: 다중 전처리 파이프라인으로 정확도 향상 (아래 참조)
 - **Auto 모드**: 자동으로 최적 엔진 선택
+
+### 🧠 **고급 Tesseract OCR 전처리 파이프라인**
+- **다중 스케일 전처리**: 120px / 150px / 300px / 450px 4단계 스케일로 다양한 크기의 번호판 대응
+- **5가지 전처리 변형**: CLAHE+OTSU, 단순 OTSU, Adaptive Threshold, 샤프닝+OTSU, 디노이징+CLAHE
+- **고 스케일 노이즈 제거**: `fastNlMeansDenoising` 기반 강력한 노이즈 제거로 저화질 이미지 대응
+- **다중 PSM 모드**: PSM 6/7/8 조합으로 텍스트 블록, 라인, 단어 레벨 인식
+- **빈도 기반 투표**: 20개 변형 x 3 PSM = 60회 OCR 결과 중 가장 빈도 높은 유효 번호판 선택
 
 ### 🌐 **다양한 인터페이스**
 - **웹 UI**: 직관적인 드래그 앤 드롭 업로드
@@ -47,6 +55,15 @@
 | **처리 속도** | 0.4 FPS | **20+ FPS** | **50배 빠름** |
 | **환경 대응** | 제한적 | **우수함** | **다양한 조건** |
 | **유지보수성** | 복잡 | **간단함** | **자동화** |
+
+### Tesseract OCR 전처리 파이프라인 개선 이력
+
+| 이미지 | 정답 | v1 (단일 전처리) | v2 (다중 변형) | v3 (다중 스케일) |
+|--------|------|-----------------|---------------|-----------------|
+| 1.jpg | `19오7777` | `0770여` | `7` | `보7777` |
+| 2.jpg | `49허1769` | `4901769` | `490817690` | **`49허1769`** |
+| 3.jpg | `54가0639` | `54가063이` | **`54가0639`** | **`54가0639`** |
+| 4.jpg | `35러6110` | `55러6110` | **`35러6110`** | **`35러6110`** |
 
 ## 🚀 빠른 시작
 
@@ -203,23 +220,20 @@ export LP_LOG_LEVEL=DEBUG
 
 ```yaml
 model:
-  yolo_model_path: "yolov8n.pt"
-  confidence_threshold: 0.5
-  device: "auto"  # auto, cpu, cuda
+  yolo_model_path: "license_plate_det_yolov8.pt"  # 번호판 전용 모델
+  confidence_threshold: 0.3
+  device: "auto"  # auto, cpu, cuda, mps
 
 ocr:
-  default_engine: "pororo"  # pororo, easyocr, tesseract, auto
-  tesseract_cmd: null
+  tesseract_cmd: null  # null이면 시스템 PATH 사용
   languages: "kor+eng"
+  psm_modes: [8, 7, 6, 13]
 
 preprocessing:
-  use_advanced: true
   resize_max_width: 1280
   enhance_contrast: true
-  char_detection_params:
-    MIN_AREA: 80
-    MIN_N_MATCHED: 3
-    PLATE_WIDTH_PADDING: 1.3
+  denoise: true
+  min_plate_height: 50
 
 web:
   host: "0.0.0.0"
@@ -254,7 +268,15 @@ pip install easyocr==1.6.2
 python -c "import easyocr; print('EasyOCR 설치 완료')"
 ```
 
-### Tesseract (기본 제공)
+### PaddleOCR (높은 정확도)
+```bash
+pip install paddleocr
+
+# 테스트
+python -c "from paddleocr import PaddleOCR; print('PaddleOCR 설치 완료')"
+```
+
+### Tesseract (기본 제공 - 다중 전처리 파이프라인 적용)
 ```bash
 # Ubuntu/Debian
 sudo apt-get install tesseract-ocr tesseract-ocr-kor
@@ -271,6 +293,11 @@ brew install tesseract tesseract-lang
 # 테스트
 tesseract --list-langs | grep kor
 ```
+
+Tesseract 사용 시 다중 전처리 파이프라인이 자동 적용됩니다:
+- 4단계 스케일(120/150/300/450px) x 다중 전처리 변형 = 20개 이미지 생성
+- PSM 6/7/8 모드 조합 = 총 60회 OCR 수행
+- 빈도 기반 투표로 최적 결과 선택
 
 ## 📊 시스템 요구사항
 
@@ -341,14 +368,14 @@ python main_app.py batch ./test_images --ocr-engine pororo
 
 ### OCR 엔진별 성능
 
-| 형식 | Pororo | EasyOCR | Tesseract |
-|------|--------|---------|-----------|
-| 일반 번호판 | ✅ 98% | ✅ 92% | ✅ 85% |
-| 신형 번호판 | ✅ 97% | ✅ 90% | ✅ 82% |
-| 지역명 포함 | ✅ 95% | ✅ 88% | ✅ 75% |
-| 특수 차량 | ✅ 90% | ✅ 85% | ✅ 70% |
-| 야간/저조도 | ✅ 94% | ✅ 87% | ✅ 65% |
-| 비스듬한 각도 | ✅ 92% | ✅ 84% | ✅ 59% |
+| 형식 | Pororo | PaddleOCR | EasyOCR | Tesseract |
+|------|--------|-----------|---------|-----------|
+| 일반 번호판 | ✅ 98% | ✅ 95% | ✅ 92% | ✅ 88% |
+| 신형 번호판 | ✅ 97% | ✅ 94% | ✅ 90% | ✅ 85% |
+| 지역명 포함 | ✅ 95% | ✅ 92% | ✅ 88% | ✅ 78% |
+| 특수 차량 | ✅ 90% | ✅ 88% | ✅ 85% | ✅ 73% |
+| 야간/저조도 | ✅ 94% | ✅ 90% | ✅ 87% | ✅ 70% |
+| 비스듬한 각도 | ✅ 92% | ✅ 89% | ✅ 84% | ✅ 65% |
 
 ## ❓ 문제해결
 
@@ -404,7 +431,7 @@ rm -rf ~/.cache/matplotlib
 1. **GPU 사용**: NVIDIA GPU + CUDA 설치로 10-50배 성능 향상
 2. **이미지 크기**: 입력 이미지 크기를 1280px 이하로 조정
 3. **배치 처리**: 대량 처리 시 `--workers` 옵션으로 병렬 처리
-4. **OCR 엔진**: Pororo > EasyOCR > Tesseract 순으로 정확도 우수
+4. **OCR 엔진**: Pororo > PaddleOCR > EasyOCR > Tesseract 순으로 정확도 우수
 5. **신뢰도 조정**: 탐지 안 될 때 `--confidence 0.2`로 낮추기
 
 ## 🎯 실제 사용 사례

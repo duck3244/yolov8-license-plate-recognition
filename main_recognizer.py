@@ -26,9 +26,9 @@ class YOLOv8LicensePlateRecognizer:
     """YOLOv8 기반 번호판 인식기"""
     
     def __init__(self, 
-                 yolo_model_path: str = 'yolov8n.pt',
+                 yolo_model_path: str = 'license_plate_det_yolov8.pt',
                  tesseract_cmd: Optional[str] = None,
-                 confidence_threshold: float = 0.5):
+                 confidence_threshold: float = 0.3):
         """
         YOLOv8 기반 번호판 인식기 초기화
         
@@ -334,8 +334,8 @@ def main():
     
     # 번호판 인식기 초기화
     recognizer = YOLOv8LicensePlateRecognizer(
-        yolo_model_path='yolov8n.pt',  # 또는 custom trained model
-        confidence_threshold=0.5
+        yolo_model_path='license_plate_det_yolov8.pt',  # 번호판 전용 모델
+        confidence_threshold=0.3
     )
     
     # 예제 이미지 처리

@@ -9,7 +9,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="yolov8-license-plate-recognition",
-    version="2.0.0",
+    version="2.1.0",
     author="License Plate Recognition Team",
     author_email="team@example.com",
     description="YOLOv8 기반 차량 번호판 인식 시스템",
@@ -27,6 +27,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Topic :: Scientific/Engineering :: Image Recognition",
     ],
@@ -41,8 +42,8 @@ setup(
             "sphinx>=4.0.0",
         ],
         "gpu": [
-            "torch[cuda]>=1.9.0",
-            "torchvision[cuda]>=0.10.0",
+            "torch[cuda]>=2.0.0",
+            "torchvision[cuda]>=0.15.0",
         ],
         "postgresql": [
             "psycopg2-binary>=2.9.0",

@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     """모델 설정"""
-    yolo_model_path: str = "yolov8n.pt"
-    confidence_threshold: float = 0.5
+    yolo_model_path: str = "license_plate_det_yolov8.pt"
+    confidence_threshold: float = 0.3
     device: str = "auto"
 
 @dataclass

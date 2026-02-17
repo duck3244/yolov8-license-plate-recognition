@@ -48,8 +48,10 @@ class RealTimeProcessor:
         # 상태 관리
         self.is_running = False
         self.frame_count = 0
+        self.process_frame_count = 0
         self.detection_count = 0
-        
+        self._lock = threading.Lock()
+
         # 스레드
         self.capture_thread = None
         self.processing_thread = None
@@ -187,14 +189,14 @@ class RealTimeProcessor:
                 continue
             
             current_time = time.time()
-            
+
             # FPS 계산
-            if current_time - frame_time > 1.0:
-                self.stats['fps'] = self.frame_count / (current_time - frame_time)
-                self.frame_count = 0
-                frame_time = current_time
-            
-            self.frame_count += 1
+            with self._lock:
+                self.frame_count += 1
+                if current_time - frame_time > 1.0:
+                    self.stats['fps'] = self.frame_count / (current_time - frame_time)
+                    self.frame_count = 0
+                    frame_time = current_time
             
             # 프레임 콜백 호출
             if self.frame_callback:
@@ -244,13 +246,14 @@ class RealTimeProcessor:
                 break
             
             current_time = time.time()
-            
+
             # 원본 FPS에 맞춰 재생
             elapsed = current_time - last_frame_time
             if elapsed < frame_interval:
                 time.sleep(frame_interval - elapsed)
-            
-            self.frame_count += 1
+
+            with self._lock:
+                self.frame_count += 1
             
             # 프레임 콜백 호출
             if self.frame_callback:
@@ -284,9 +287,10 @@ class RealTimeProcessor:
                 # 프레임 가져오기 (타임아웃 1초)
                 frame_data = self.frame_queue.get(timeout=1.0)
                 frame, capture_time = frame_data
-                
+
                 # 프레임 스키핑 (성능 최적화)
-                if self.frame_count % self.frame_skip != 0:
+                self.process_frame_count += 1
+                if self.process_frame_count % self.frame_skip != 0:
                     continue
                 
                 start_time = time.time()
@@ -315,12 +319,13 @@ class RealTimeProcessor:
                     self.stats['avg_processing_time'] = np.mean(processing_times)
                     
                     if plate_text and len(plate_text.strip()) > 3:
-                        self.detection_count += 1
-                        
-                        # 탐지율 계산
-                        if self.stats['start_time']:
-                            elapsed_time = time.time() - self.stats['start_time']
-                            self.stats['detection_rate'] = self.detection_count / elapsed_time * 60  # 분당 탐지수
+                        with self._lock:
+                            self.detection_count += 1
+
+                            # 탐지율 계산
+                            if self.stats['start_time']:
+                                elapsed_time = time.time() - self.stats['start_time']
+                                self.stats['detection_rate'] = self.detection_count / elapsed_time * 60  # 분당 탐지수
                         
                         # 탐지 결과 객체 생성
                         detection = PlateDetection(
@@ -430,7 +435,7 @@ class StreamingServer:
         
     def start_streaming(self):
         """스트리밍 시작"""
-        from flask import Flask, Response
+        from flask import Flask, Response, jsonify
         
         app = Flask(__name__)
         

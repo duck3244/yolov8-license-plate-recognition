@@ -2,8 +2,8 @@
 # YOLOv8 번호판 인식 시스템 기본 설정
 
 model:
-  yolo_model_path: "yolov8n.pt"
-  confidence_threshold: 0.5
+  yolo_model_path: "license_plate_det_yolov8.pt"
+  confidence_threshold: 0.3
   device: "auto"  # auto, cpu, cuda, mps
   batch_size: 16
 
@@ -63,7 +63,7 @@ security:
   api_key: ""
   rate_limit_per_minute: 60
   cors_enabled: true
-  allowed_origins: ["*"]
+  allowed_origins: ["http://localhost:5000"]  # 프로덕션 시 실제 도메인으로 변경
 
 performance:
   max_workers: 4
