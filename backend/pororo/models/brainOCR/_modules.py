@@ -5,8 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from torchvision import models
-from torchvision.models.vgg import model_urls
+from pororo._compat import load_vgg16_bn
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -29,10 +28,7 @@ class Vgg16BN(torch.nn.Module):
 
     def __init__(self, pretrained: bool = True, freeze: bool = True):
         super(Vgg16BN, self).__init__()
-        model_urls["vgg16_bn"] = model_urls["vgg16_bn"].replace(
-            "https://", "http://")
-        vgg_pretrained_features = models.vgg16_bn(
-            pretrained=pretrained).features
+        vgg_pretrained_features = load_vgg16_bn(pretrained=pretrained).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()
         self.slice3 = torch.nn.Sequential()

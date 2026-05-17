@@ -10,6 +10,8 @@ import torch
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 
+from pororo._compat import safe_torch_load
+
 from .craft import CRAFT
 from .craft_utils import adjust_result_coordinates, get_det_boxes
 from .imgproc import normalize_mean_variance, resize_aspect_ratio
@@ -77,7 +79,7 @@ def get_detector(det_model_ckpt_fp: str, device: str = "cpu"):
     net = CRAFT()
 
     net.load_state_dict(
-        copy_state_dict(torch.load(det_model_ckpt_fp, map_location=device)))
+        copy_state_dict(safe_torch_load(det_model_ckpt_fp, map_location=device)))
     if device == "cuda":
         net = torch.nn.DataParallel(net).to(device)
         cudnn.benchmark = False

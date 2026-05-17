@@ -45,7 +45,10 @@ class WebConfig:
 class LoggingConfig:
     """로깅 설정"""
     level: str = "INFO"
-    file: str = "license_plate_system.log"
+    file: str = "logs/license_plate_system.log"
+    max_size_mb: int = 10
+    backup_count: int = 5
+    format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 @dataclass
 class SystemConfig:
@@ -131,6 +134,9 @@ class ConfigManager:
                 log_data = config_data['logging']
                 config.logging.level = log_data.get('level', config.logging.level)
                 config.logging.file = log_data.get('file', config.logging.file)
+                config.logging.max_size_mb = log_data.get('max_size_mb', config.logging.max_size_mb)
+                config.logging.backup_count = log_data.get('backup_count', config.logging.backup_count)
+                config.logging.format = log_data.get('format', config.logging.format)
 
             return config
 

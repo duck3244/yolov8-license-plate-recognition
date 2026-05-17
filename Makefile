@@ -1,76 +1,45 @@
-# Makefile
-# 개발 및 배포를 위한 Makefile
+# 루트 Makefile — backend + frontend 통합 개발 워크플로
 
-.PHONY: install install-dev test clean lint format
+PY ?= /home/duck/miniconda3/envs/py310_pt/bin/python
 
-# 기본 설치
-install:
-	pip install -r requirements.txt
+.PHONY: help dev backend-dev frontend-dev build prod clean install
 
-# 개발 환경 설치
-install-dev:
-	pip install -r requirements.txt
-	pip install -e .[dev]
-
-# 테스트 실행
-test:
-	python -m pytest tests/ -v --cov=. --cov-report=html
-
-# 코드 정리
-clean:
-	find . -type f -name "*.pyc" -delete
-	find . -type d -name "__pycache__" -delete
-	rm -rf build/
-	rm -rf dist/
-	rm -rf *.egg-info/
-	rm -rf htmlcov/
-	rm -rf .pytest_cache/
-
-# 코드 스타일 검사
-lint:
-	flake8 *.py
-	black --check *.py
-
-# 코드 포맷팅
-format:
-	black *.py
-	isort *.py
-
-# 로그 확인
-logs:
-	tail -f logs/license_plate_system.log
-
-# 데이터베이스 백업
-backup:
-	python -c "from database_manager import DatabaseManager; db = DatabaseManager(); db.backup_database('backup_$(shell date +%Y%m%d_%H%M%S).db')"
-
-# 성능 테스트 (테스트 이미지가 있는 경우)
-benchmark:
-	python test_train.py benchmark --images_dir test_images --iterations 10
-
-# 개발 서버 실행
-dev:
-	python main_app.py server --config config.yaml
-
-# 프로덕션 서버 실행
-prod:
-	gunicorn -w 4 -b 0.0.0.0:5000 "main_app:create_app()"
-
-# 설정 검증
-validate-config:
-	python main_app.py config validate
-
-# 도움말 표시
 help:
-	@echo "사용 가능한 명령들:"
-	@echo "  install      - 기본 패키지 설치"
-	@echo "  install-dev  - 개발 환경 설치"
-	@echo "  test         - 테스트 실행"
-	@echo "  clean        - 임시 파일 정리"
-	@echo "  lint         - 코드 스타일 검사"
-	@echo "  format       - 코드 포맷팅"
-	@echo "  logs         - 로그 확인"
-	@echo "  backup       - 데이터베이스 백업"
-	@echo "  benchmark    - 성능 벤치마크"
-	@echo "  dev          - 개발 서버 실행"
-	@echo "  prod         - 프로덕션 서버 실행"
+	@echo "사용 가능한 타깃:"
+	@echo "  make install        - backend(pip) + frontend(npm) 의존성 설치"
+	@echo "  make dev            - backend(uvicorn) + frontend(vite) 동시 실행"
+	@echo "  make backend-dev    - FastAPI 단독 (uvicorn --reload, port 8000)"
+	@echo "  make frontend-dev   - Vite 단독 (port 5173, /api 프록시)"
+	@echo "  make build          - frontend 운영 빌드 (frontend/dist)"
+	@echo "  make prod           - 빌드된 SPA + uvicorn 단일 워커로 서빙"
+	@echo "  make clean          - dist/, __pycache__, *.pyc 제거"
+
+install:
+	$(PY) -m pip install -r backend/requirements.txt
+	cd frontend && npm install
+
+backend-dev:
+	cd backend && $(PY) -m uvicorn main:app --reload --host 127.0.0.1 --port 8000 \
+		--reload-dir api --reload-dir .
+
+frontend-dev:
+	cd frontend && npm run dev
+
+# 두 프로세스를 한 터미널에서 동시 실행. Ctrl-C 한 번에 모두 종료.
+dev:
+	@trap 'kill 0' INT; \
+	$(MAKE) backend-dev & \
+	$(MAKE) frontend-dev & \
+	wait
+
+build:
+	cd frontend && npm run build
+
+# 운영: SPA 빌드 후 FastAPI 단일 워커. 빌드 산출물(frontend/dist)을 main.py가 자동 마운트.
+prod: build
+	cd backend && $(PY) -m uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
+
+clean:
+	rm -rf frontend/dist
+	find backend -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find backend -type f -name "*.pyc" -delete

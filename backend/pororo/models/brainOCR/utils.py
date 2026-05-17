@@ -12,6 +12,10 @@ import torch
 from PIL import Image
 from torch import Tensor
 
+from pororo._compat import ensure_pil_antialias
+
+ensure_pil_antialias()
+
 from .imgproc import load_image
 
 

@@ -1,489 +1,346 @@
-# 🚗 YOLOv8 번호판 인식 시스템
+# YOLOv8 번호판 인식 시스템
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev/)
 [![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-orange.svg)](https://github.com/ultralytics/ultralytics)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**딥러닝 + 고급 OpenCV 기반 한국 차량 번호판 자동 인식 시스템**
+**FastAPI + React 기반 한국 차량 번호판 자동 인식 시스템 (v3.0)**
 
-기존 단순 OpenCV 방식을 YOLOv8와 고급 전처리 알고리즘으로 완전히 재구성한 프로덕션 레벨 번호판 인식 솔루션입니다.
+YOLOv8 검출 → 다중 OCR 엔진(Pororo / PaddleOCR / EasyOCR / Tesseract) auto-fallback → SQLite 저장 → React SPA 로 시각화하는 **단일 사용자 MVP** 풀스택 애플리케이션입니다.
 
-## ⭐ 주요 특징
+![Demo](./demo.png)
 
-### 🎯 **다층 탐지 시스템**
-- **1단계**: YOLOv8 딥러닝 모델로 1차 탐지
-- **2단계**: 고급 OpenCV 문자 분석으로 2차 탐지
-- **3단계**: 기본 OpenCV 윤곽선 탐지로 3차 백업
-- **95%+ 탐지율**: 3단계 탐지 시스템으로 높은 성공률
+> 위 화면은 이미지를 업로드해 번호판을 인식하고 결과 이미지·이력을 확인하는 SPA UI 예시입니다.
 
-### ⚡ **고속 처리**
-- **실시간 처리**: GPU 가속으로 20+ FPS 달성
-- **배치 처리**: 대용량 이미지 폴더 병렬 일괄 처리
-- **최적화된 전처리**: 다중 스레딩으로 처리 속도 향상
+---
 
-### 🔧 **다중 OCR 엔진 지원**
-- **Pororo OCR**: 한국어 특화 최고 정확도 (98%)
-- **PaddleOCR**: 높은 정확도 (95%)
-- **EasyOCR**: 균형잡힌 성능 (92%)
-- **Tesseract**: 다중 전처리 파이프라인으로 정확도 향상 (아래 참조)
-- **Auto 모드**: 자동으로 최적 엔진 선택
+## 목차
 
-### 🧠 **고급 Tesseract OCR 전처리 파이프라인**
-- **다중 스케일 전처리**: 120px / 150px / 300px / 450px 4단계 스케일로 다양한 크기의 번호판 대응
-- **5가지 전처리 변형**: CLAHE+OTSU, 단순 OTSU, Adaptive Threshold, 샤프닝+OTSU, 디노이징+CLAHE
-- **고 스케일 노이즈 제거**: `fastNlMeansDenoising` 기반 강력한 노이즈 제거로 저화질 이미지 대응
-- **다중 PSM 모드**: PSM 6/7/8 조합으로 텍스트 블록, 라인, 단어 레벨 인식
-- **빈도 기반 투표**: 20개 변형 x 3 PSM = 60회 OCR 결과 중 가장 빈도 높은 유효 번호판 선택
+- [핵심 기능](#핵심-기능)
+- [아키텍처 개요](#아키텍처-개요)
+- [디렉토리 구조](#디렉토리-구조)
+- [빠른 시작](#빠른-시작)
+- [실행 방법](#실행-방법)
+- [REST API](#rest-api)
+- [Python API](#python-api)
+- [설정](#설정)
+- [OCR 엔진 설치](#ocr-엔진-설치)
+- [시스템 요구사항](#시스템-요구사항)
+- [문제 해결](#문제-해결)
+- [추가 문서](#추가-문서)
 
-### 🌐 **다양한 인터페이스**
-- **웹 UI**: 직관적인 드래그 앤 드롭 업로드
-- **REST API**: 다른 시스템과의 연동
-- **CLI**: 명령줄 인터페이스
-- **Python API**: 프로그래밍 방식 사용
+---
 
-### 📊 **모니터링 & 분석**
-- **실시간 대시보드**: 성능 메트릭 및 통계
-- **자동 데이터베이스 저장**: SQLite 기반 탐지 결과 관리
-- **디버그 모드**: 단계별 탐지 과정 시각화
+## 핵심 기능
 
-## 📈 성능 비교
+### 3단 검출(Detection) Fallback
+1. **YOLOv8** — `license_plate_det_yolov8.pt` 가중치로 1차 검출 (없으면 HuggingFace Hub 에서 자동 다운로드)
+2. **고급 OpenCV** — top-hat/black-hat → adaptive threshold → contour → 문자 그룹핑 → 회전 보정
+3. **기본 OpenCV** — Canny + aspect-ratio 필터 (최후 fallback)
 
-| 항목 | 기존 OpenCV 방식 | YOLOv8+고급OpenCV | 개선도 |
-|------|-----------------|-------------------|--------|
-| **탐지 정확도** | ~60% | **95%+** | **+35%** |
-| **인식 정확도** | ~70% | **95%+** | **+25%** |
-| **처리 속도** | 0.4 FPS | **20+ FPS** | **50배 빠름** |
-| **환경 대응** | 제한적 | **우수함** | **다양한 조건** |
-| **유지보수성** | 복잡 | **간단함** | **자동화** |
+### 다중 OCR Auto-fallback
+초기화 우선순위: **Pororo → PaddleOCR → EasyOCR → Tesseract**
+첫 번째로 초기화 성공한 엔진을 자동 선택하며, `OCR_ENGINE` 환경변수로 명시 지정도 가능.
 
-### Tesseract OCR 전처리 파이프라인 개선 이력
+### 고급 Tesseract 파이프라인 (옵션)
+- 4단계 스케일(120/150/300/450px) × 5종 전처리 변형 = 20장
+- PSM 6/7/8 모드 조합 → 총 60회 OCR 수행
+- 유효 번호판 패턴(`\d{2,3}[가-힣]\d{4}`) 빈도 기반 투표로 최적 결과 선택
 
-| 이미지 | 정답 | v1 (단일 전처리) | v2 (다중 변형) | v3 (다중 스케일) |
-|--------|------|-----------------|---------------|-----------------|
-| 1.jpg | `19오7777` | `0770여` | `7` | `보7777` |
-| 2.jpg | `49허1769` | `4901769` | `490817690` | **`49허1769`** |
-| 3.jpg | `54가0639` | `54가063이` | **`54가0639`** | **`54가0639`** |
-| 4.jpg | `35러6110` | `55러6110` | **`35러6110`** | **`35러6110`** |
+### 풀스택 UI
+- **백엔드**: FastAPI + uvicorn (port `8000`)
+- **프런트엔드**: React 18 + TypeScript + Vite + Tailwind CSS (dev port `5173`)
+- **운영 빌드**: FastAPI 가 `frontend/dist` 를 동일 origin 으로 정적 서빙
 
-## 🚀 빠른 시작
+### 안전한 단일 사용자 MVP 운영
+- 업로드 경로 탈출 방지 (`Path.resolve()` 검증)
+- 확장자 화이트리스트, 파일 크기 한도(`MAX_UPLOAD_MB`)
+- 처리 직후 업로드 파일 자동 삭제 + lifespan 시 오래된 파일 청소
+- 모듈 전역 `inference_lock` 으로 비-스레드세이프 모델 호출 직렬화
 
-### 1. 가상환경 생성 (권장)
-conda create -n yolo_lpr python=3.8
-conda activate yolo_lpr
+---
 
-### 2. 기본 의존성 설치
-pip install -r requirements.txt
-
-### 3. OCR 엔진 설치 (선택)
-pip install pororo-ocr  # 한국어 특화
-pip install easyocr     # 다국어 지원
+## 아키텍처 개요
 
 ```
-# 기본 테스트 (Tesseract 사용)
-python main_app.py image your_car_image.jpg
-
-# 고성능 OCR 사용
-python main_app.py image your_car_image.jpg --ocr-engine pororo
-
-# 웹 서버 실행
-python main_app.py server
-# 브라우저에서 http://localhost:5000 접속
+[Browser] ──/api──► [FastAPI :8000] ──► [Recognizer (YOLO + OCR)]
+                          │
+                          ├──► [SQLite: license_plates.db]
+                          └──► [StaticFiles: frontend/dist] (운영)
 ```
 
-## 📖 상세 사용법
+자세한 레이어 구성·요청 흐름·데이터 모델·확장 포인트는 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), UML 다이어그램은 [`docs/UML.md`](docs/UML.md) 를 참고하세요.
 
-### 🖼️ 이미지 처리
+---
+
+## 디렉토리 구조
+
+```
+yolov8-license-plate-recognition/
+├── Makefile                  # dev / build / prod 통합 워크플로
+├── README.md
+├── demo.png                  # UI 데모 스크린샷
+├── docs/
+│   ├── ARCHITECTURE.md       # 시스템 아키텍처 문서
+│   └── UML.md                # Mermaid UML 다이어그램
+├── backend/
+│   ├── main.py               # FastAPI 진입점 (uvicorn main:app)
+│   ├── api/
+│   │   ├── routes.py         # /api/detect, /history, /statistics, /health
+│   │   ├── deps.py           # 싱글톤 (recognizer, db, inference_lock)
+│   │   ├── schemas.py        # Pydantic v2 요청/응답 모델
+│   │   └── settings.py       # pydantic-settings (.env / 환경변수)
+│   ├── license_plate_recognizer.py  # YOLO + OCR 통합 엔진
+│   ├── database_manager.py   # SQLite CRUD + PlateDetection
+│   ├── batch_processor.py    # CLI 배치 처리
+│   ├── pororo/               # Vendored Pororo OCR
+│   ├── uploads/              # 임시 업로드 (자동 삭제)
+│   ├── logs/                 # RotatingFileHandler 로그
+│   ├── license_plates.db     # SQLite DB
+│   └── license_plate_det_yolov8.pt
+└── frontend/
+    ├── index.html
+    ├── vite.config.ts        # /api → http://127.0.0.1:8000 proxy
+    └── src/
+        ├── App.tsx           # 업로드 + 결과 + 이력 UI
+        └── api/client.ts     # axios 기반 API 클라이언트
+```
+
+---
+
+## 빠른 시작
+
+### 1. 의존성 설치
 
 ```bash
-# 기본 처리
-python main_app.py image car.jpg
+# Python 3.10 가상환경 (예: conda)
+conda create -n py310_pt python=3.10 -y
+conda activate py310_pt
 
-# 특정 OCR 엔진 사용
-python main_app.py image car.jpg --ocr-engine pororo     # 최고 정확도
-python main_app.py image car.jpg --ocr-engine easyocr   # 균형 성능
-python main_app.py image car.jpg --ocr-engine tesseract # 빠른 처리
-
-# 낮은 신뢰도로 더 많은 탐지
-python main_app.py image car.jpg --confidence 0.2
-
-# 결과 표시 없이 처리
-python main_app.py image car.jpg --no-display
-
-# 디버그 모드 (탐지 과정 시각화)
-python main_app.py image car.jpg --debug
+# 백엔드 + 프런트엔드 일괄 설치
+make install
 ```
 
-### 📦 배치 처리
+`make install` 은 내부에서 다음을 실행합니다.
+```bash
+python -m pip install -r backend/requirements.txt
+cd frontend && npm install
+```
+
+> CUDA 빌드의 PyTorch 가 필요한 경우 공식 인덱스로 별도 설치를 권장합니다.
+> `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121`
+
+### 2. 환경변수 설정 (선택)
+
+`backend/.env.example` 을 복사해 `backend/.env` 를 만들고 필요한 값만 덮어씁니다.
 
 ```bash
-# 기본 배치 처리
-python main_app.py batch ./input_images
-
-# 출력 디렉토리 지정 및 멀티스레딩
-python main_app.py batch ./input_images --output_dir ./results --workers 8
-
-# 특정 OCR 엔진으로 배치 처리
-python main_app.py batch ./input_images --ocr-engine pororo
+cp backend/.env.example backend/.env
 ```
 
-### 🌐 웹 서버
+### 3. 실행
 
 ```bash
-# 기본 웹 서버
-python main_app.py server
-
-# 커스텀 설정
-python main_app.py server --host 0.0.0.0 --port 8000 --debug
+make dev      # FastAPI (8000) + Vite (5173) 동시 기동
 ```
 
-**접속 주소:**
-- 메인 페이지: http://localhost:5000
-- 대시보드: http://localhost:5000/dashboard
-- API 문서: http://localhost:5000/api/docs
+브라우저에서 **http://localhost:5173** 접속 → 이미지 업로드 → 결과 확인.
 
-### ⚙️ 설정 관리
+---
 
-```bash
-# 현재 설정 확인
-python main_app.py config view
+## 실행 방법
 
-# 특정 섹션만 확인
-python main_app.py config view --section model
+| 명령 | 설명 |
+|---|---|
+| `make install` | backend(pip) + frontend(npm) 의존성 설치 |
+| `make dev` | FastAPI(uvicorn --reload) + Vite 동시 실행 (Ctrl-C 한 번에 종료) |
+| `make backend-dev` | FastAPI 단독 (port 8000, reload) |
+| `make frontend-dev` | Vite 단독 (port 5173, /api 프록시) |
+| `make build` | 프런트엔드 운영 빌드 → `frontend/dist` |
+| `make prod` | 빌드된 SPA + uvicorn 단일 워커로 동일 origin 서빙 |
+| `make clean` | `dist/`, `__pycache__`, `*.pyc` 제거 |
 
-# 설정 검증
-python main_app.py config validate
-```
+운영 모드에서는 FastAPI 가 `/api/*` 외 모든 경로에 대해 `frontend/dist` 를 서빙하므로 별도 웹서버 없이 단일 호스트로 동작합니다.
 
-## 🔌 API 사용법
+---
 
-### REST API
+## REST API
+
+베이스 URL: `http://127.0.0.1:8000/api`
+대화형 문서: `http://127.0.0.1:8000/docs` (Swagger UI)
+
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| `POST` | `/api/detect` | 이미지 업로드 + 번호판 인식 + DB 저장 |
+| `GET` | `/api/results/{id}/image` | 저장된 결과 이미지(JPEG) 스트리밍 |
+| `GET` | `/api/history?plate_number=&limit=` | 인식 이력 조회 (최대 500건) |
+| `GET` | `/api/statistics` | 통계 (총 검출/유니크/오늘/평균 신뢰도·처리시간) |
+| `GET` | `/api/health` | 헬스체크 (`SELECT 1` 기반) |
+
+### 예시 — Python
 
 ```python
 import requests
 
-# 이미지 업로드 및 인식
-with open('car_image.jpg', 'rb') as f:
-    response = requests.post(
-        'http://localhost:5000/api/detect',
-        files={'image': f},
-        data={'ocr_engine': 'pororo'}  # 선택적
-    )
-    result = response.json()
-    print(f"인식 결과: {result['plate_number']}")
+# 1) 업로드 + 인식
+with open("car.jpg", "rb") as f:
+    res = requests.post(
+        "http://127.0.0.1:8000/api/detect",
+        files={"image": f},
+    ).json()
 
-# 탐지 이력 조회
-response = requests.get('http://localhost:5000/api/history?limit=10')
-history = response.json()
+print(res["plate_number"], res["processing_time"])
+# → '49허1769' 0.382
 
-# 시스템 통계
-response = requests.get('http://localhost:5000/api/statistics')
-stats = response.json()
+# 2) 결과 이미지 다운로드
+img_url = f"http://127.0.0.1:8000{res['result_image_url']}"
+open("result.jpg", "wb").write(requests.get(img_url).content)
+
+# 3) 이력 조회
+history = requests.get(
+    "http://127.0.0.1:8000/api/history",
+    params={"limit": 10},
+).json()
 ```
 
-### Python API
-
-```python
-from license_plate_recognizer import YOLOv8LicensePlateRecognizer
-
-# 인식기 초기화
-recognizer = YOLOv8LicensePlateRecognizer(
-    ocr_engine='pororo',  # 최고 정확도
-    use_advanced_preprocessing=True,  # 고급 전처리 활성화
-    confidence_threshold=0.5
-)
-
-# 이미지에서 번호판 인식
-plate_text, result_img = recognizer.process_image('car_image.jpg')
-print(f"인식된 번호판: {plate_text}")
-
-# 디버그 정보 출력
-recognizer.debug_detection_process('car_image.jpg')
-```
-
-## ⚙️ 고급 설정
-
-### 환경 변수
+### 예시 — curl
 
 ```bash
-# OCR 엔진 기본값 설정
-export OCR_ENGINE=pororo
-
-# 웹 서버 설정
-export LP_WEB_HOST=0.0.0.0
-export LP_WEB_PORT=5000
-
-# 로그 레벨
-export LP_LOG_LEVEL=DEBUG
-```
-
-### config.yaml 파일
-
-```yaml
-model:
-  yolo_model_path: "license_plate_det_yolov8.pt"  # 번호판 전용 모델
-  confidence_threshold: 0.3
-  device: "auto"  # auto, cpu, cuda, mps
-
-ocr:
-  tesseract_cmd: null  # null이면 시스템 PATH 사용
-  languages: "kor+eng"
-  psm_modes: [8, 7, 6, 13]
-
-preprocessing:
-  resize_max_width: 1280
-  enhance_contrast: true
-  denoise: true
-  min_plate_height: 50
-
-web:
-  host: "0.0.0.0"
-  port: 5000
-  debug: false
-
-database:
-  path: "license_plates.db"
-  auto_cleanup_days: 30
-```
-
-## 🛠️ OCR 엔진별 설치 가이드
-
-### Pororo OCR (한국어 특화 - 권장)
-```bash
-# 가벼운 OCR 전용 버전
-pip install pororo-ocr
-
-# Pillow 호환성 문제 해결
-pip install Pillow==9.5.0
-
-# 테스트
-python -c "import prrocr; print('Pororo OCR 설치 완료')"
-```
-
-### EasyOCR (다국어 지원)
-```bash
-# 안정 버전 설치 (PyTorch 1.11 호환)
-pip install easyocr==1.6.2
-
-# 테스트
-python -c "import easyocr; print('EasyOCR 설치 완료')"
-```
-
-### PaddleOCR (높은 정확도)
-```bash
-pip install paddleocr
-
-# 테스트
-python -c "from paddleocr import PaddleOCR; print('PaddleOCR 설치 완료')"
-```
-
-### Tesseract (기본 제공 - 다중 전처리 파이프라인 적용)
-```bash
-# Ubuntu/Debian
-sudo apt-get install tesseract-ocr tesseract-ocr-kor
-
-# CentOS/RHEL
-sudo yum install tesseract tesseract-langpack-kor
-
-# macOS
-brew install tesseract tesseract-lang
-
-# Windows
-# https://github.com/tesseract-ocr/tesseract/wiki 참조
-
-# 테스트
-tesseract --list-langs | grep kor
-```
-
-Tesseract 사용 시 다중 전처리 파이프라인이 자동 적용됩니다:
-- 4단계 스케일(120/150/300/450px) x 다중 전처리 변형 = 20개 이미지 생성
-- PSM 6/7/8 모드 조합 = 총 60회 OCR 수행
-- 빈도 기반 투표로 최적 결과 선택
-
-## 📊 시스템 요구사항
-
-### 최소 요구사항
-- **Python**: 3.8 이상
-- **RAM**: 4GB 이상
-- **저장공간**: 2GB 이상
-- **OS**: Windows 10, Ubuntu 18.04, macOS 10.15 이상
-
-### 권장 요구사항
-- **Python**: 3.8-3.10 (3.11 미만 권장)
-- **RAM**: 8GB 이상
-- **GPU**: NVIDIA GPU (CUDA 11.3 이상)
-- **저장공간**: 5GB 이상
-
-### 호환성 매트릭스
-
-| Python | PyTorch | CUDA | Pororo | EasyOCR | 상태 |
-|--------|---------|------|--------|---------|------|
-| 3.8    | 1.11.0  | 11.3 | ✅      | ✅       | **권장** |
-| 3.9    | 1.13.x  | 11.7 | ✅      | ✅       | 호환 |
-| 3.10   | 2.0.x   | 11.8 | ⚠️      | ⚠️       | 부분 호환 |
-| 3.11   | 2.1.x+  | 12.0 | ❌      | ❌       | 비호환 |
-
-## 🧪 테스트 및 검증
-
-### 단위 테스트
-
-```bash
-# 전체 테스트
-python -m pytest tests/ -v
-
-# 특정 모듈 테스트
-python test_recognizer.py
-python test_database.py
-python test_web_interface.py
-```
-
-### 성능 벤치마크
-
-```bash
-# 성능 벤치마크 실행
-python test_train.py benchmark --images_dir ./test_images --iterations 10
-
-# OCR 엔진별 성능 비교
-python main_app.py image test_image.jpg --ocr-engine auto --debug
-```
-
-### 샘플 이미지로 테스트
-
-```bash
-# 테스트 데이터셋 다운로드
-wget https://example.com/korean_license_plates.zip
-unzip korean_license_plates.zip
-
-# 배치 테스트
-python main_app.py batch ./test_images --ocr-engine pororo
-```
-
-## 📋 지원되는 번호판 형식
-
-### 한국 번호판 패턴
-
-- **일반형**: `12가1234`, `123가1234`
-- **신형**: `12가3456`
-- **지역명 포함**: `서울12가1234`
-- **특수차량**: `배123`, `외1234`
-
-### OCR 엔진별 성능
-
-| 형식 | Pororo | PaddleOCR | EasyOCR | Tesseract |
-|------|--------|-----------|---------|-----------|
-| 일반 번호판 | ✅ 98% | ✅ 95% | ✅ 92% | ✅ 88% |
-| 신형 번호판 | ✅ 97% | ✅ 94% | ✅ 90% | ✅ 85% |
-| 지역명 포함 | ✅ 95% | ✅ 92% | ✅ 88% | ✅ 78% |
-| 특수 차량 | ✅ 90% | ✅ 88% | ✅ 85% | ✅ 73% |
-| 야간/저조도 | ✅ 94% | ✅ 90% | ✅ 87% | ✅ 70% |
-| 비스듬한 각도 | ✅ 92% | ✅ 89% | ✅ 84% | ✅ 65% |
-
-## ❓ 문제해결
-
-### 자주 발생하는 문제
-
-#### 1. **OCR 엔진 초기화 실패**
-```bash
-# Pillow 버전 문제 (Pororo)
-pip install Pillow==9.5.0
-
-# PyTorch 호환성 문제 (EasyOCR)
-pip install easyocr==1.6.2
-
-# Tesseract 언어팩 누락
-sudo apt-get install tesseract-ocr-kor
-```
-
-#### 2. **번호판 탐지 실패**
-```bash
-# 신뢰도 임계값 낮추기
-python main_app.py image car.jpg --confidence 0.2
-
-# 고급 전처리 활성화
-python main_app.py image car.jpg --advanced-preprocessing
-
-# 디버그 모드로 탐지 과정 확인
-python main_app.py image car.jpg --debug
-```
-
-#### 3. **CUDA 메모리 부족**
-```bash
-# GPU 메모리 사용량 제한
-export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-
-# CPU 모드 강제 사용
-python main_app.py image car.jpg --device cpu
-```
-
-#### 4. **한글 폰트 문제**
-```bash
-# Ubuntu/Debian
-sudo apt-get install fonts-nanum fonts-nanum-coding
-
-# 폰트 캐시 업데이트
-fc-cache -fv
-
-# matplotlib 캐시 클리어
-rm -rf ~/.cache/matplotlib
-```
-
-### 성능 최적화 팁
-
-1. **GPU 사용**: NVIDIA GPU + CUDA 설치로 10-50배 성능 향상
-2. **이미지 크기**: 입력 이미지 크기를 1280px 이하로 조정
-3. **배치 처리**: 대량 처리 시 `--workers` 옵션으로 병렬 처리
-4. **OCR 엔진**: Pororo > PaddleOCR > EasyOCR > Tesseract 순으로 정확도 우수
-5. **신뢰도 조정**: 탐지 안 될 때 `--confidence 0.2`로 낮추기
-
-## 🎯 실제 사용 사례
-
-### 1. 주차장 관리 시스템
-```python
-def parking_system():
-    recognizer = YOLOv8LicensePlateRecognizer(ocr_engine='pororo')
-    
-    entry_plate = recognizer.process_image('entry_car.jpg')[0]
-    exit_plate = recognizer.process_image('exit_car.jpg')[0]
-    
-    if entry_plate == exit_plate:
-        print(f"정상 출차: {entry_plate}")
-    else:
-        print(f"번호판 불일치: {entry_plate} vs {exit_plate}")
-```
-
-### 2. 교통 위반 단속
-```python
-def traffic_enforcement():
-    recognizer = YOLOv8LicensePlateRecognizer(
-        ocr_engine='pororo',
-        confidence_threshold=0.3
-    )
-    
-    for violation_image in violation_images:
-        plate_number = recognizer.process_image(violation_image)[0]
-        
-        if recognizer.is_valid_korean_plate(plate_number):
-            save_violation_record(plate_number, violation_image)
-            print(f"위반 차량 기록: {plate_number}")
-```
-
-### 3. 실시간 모니터링
-```python
-def realtime_monitoring():
-    recognizer = YOLOv8LicensePlateRecognizer(ocr_engine='pororo')
-    cap = cv2.VideoCapture(0)
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        # 30프레임마다 처리 (성능 최적화)
-        if frame_count % 30 == 0:
-            plates = recognizer.detect_license_plates(frame)
-            for plate_info in plates:
-                plate_text = recognizer.recognize_text(plate_region)
-                if plate_text:
-                    print(f"실시간 감지: {plate_text}")
+curl -F image=@car.jpg http://127.0.0.1:8000/api/detect
+curl http://127.0.0.1:8000/api/history?limit=10
+curl http://127.0.0.1:8000/api/statistics
+curl http://127.0.0.1:8000/api/health
 ```
 
 ---
+
+## Python API
+
+CLI 나 노트북에서 직접 엔진을 사용하는 경우.
+
+```python
+from backend.license_plate_recognizer import YOLOv8LicensePlateRecognizer
+
+recognizer = YOLOv8LicensePlateRecognizer(
+    yolo_model_path="backend/license_plate_det_yolov8.pt",
+    ocr_engine="auto",            # pororo / paddleocr / easyocr / tesseract / auto
+    confidence_threshold=0.3,
+    use_advanced_preprocessing=True,
+)
+
+plate_text, result_img = recognizer.process_image("car.jpg", save_result=False)
+print(plate_text)
+```
+
+---
+
+## 설정
+
+`backend/api/settings.py` 가 `.env` 와 환경변수를 통합합니다 (pydantic-settings v2).
+
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `HOST` / `PORT` | `127.0.0.1` / `8000` | 외부 노출은 reverse proxy 권장 |
+| `SECRET_KEY` | 무작위 hex (dev) | 운영 시 반드시 환경변수 주입 |
+| `UPLOAD_FOLDER` | `backend/uploads` | |
+| `MAX_UPLOAD_MB` | `16` | 초과 시 413 |
+| `ALLOWED_EXTENSIONS` | `.jpg/.jpeg/.png/.bmp/.tiff` | |
+| `CLEANUP_AGE_HOURS` | `24` | lifespan 시 오래된 업로드 자동 청소 |
+| `DELETE_AFTER_PROCESS` | `true` | 처리 직후 즉시 삭제 |
+| `DB_PATH` | `backend/license_plates.db` | |
+| `YOLO_MODEL_PATH` | `backend/license_plate_det_yolov8.pt` | 없으면 HF Hub 자동 다운로드 |
+| `CONFIDENCE_THRESHOLD` | `0.3` | YOLO 임계값 |
+| `OCR_ENGINE` | `auto` | `pororo` / `paddleocr` / `easyocr` / `tesseract` |
+| `CORS_ORIGINS` | `localhost:5173`, `127.0.0.1:5173` | Vite dev 한정 |
+| `LOG_LEVEL` / `LOG_FILE` | `INFO` / `logs/...log` | RotatingFileHandler (10MB × 5) |
+
+`backend/config.yaml` 은 레거시 호환용 (`config_manager.py`) 으로 유지됩니다.
+
+---
+
+## OCR 엔진 설치
+
+`requirements.txt` 에는 Tesseract 만 기본 포함됩니다. 다른 엔진은 필요 시 별도 설치하세요. Pororo OCR 은 본 저장소에 vendored 되어 별도 설치가 필요하지 않습니다 (`backend/pororo/`).
+
+### Tesseract (기본)
+```bash
+# Ubuntu / Debian
+sudo apt-get install tesseract-ocr tesseract-ocr-kor
+
+# macOS
+brew install tesseract tesseract-lang
+```
+
+### PaddleOCR (옵션)
+```bash
+pip install paddleocr paddlepaddle-gpu  # GPU
+# 또는
+pip install paddleocr paddlepaddle      # CPU
+```
+
+### EasyOCR (옵션)
+```bash
+pip install easyocr
+```
+
+### 한글 폰트 (결과 이미지 텍스트)
+```bash
+sudo apt-get install fonts-nanum fonts-nanum-coding
+fc-cache -fv
+```
+
+---
+
+## 시스템 요구사항
+
+### 최소
+- Python **3.10** (vendored Pororo 호환성 기준)
+- RAM 4 GB
+- 디스크 2 GB
+- Node.js **18.18+** (프런트엔드 빌드)
+
+### 권장
+- Python 3.10 + PyTorch 2.x + CUDA 12.1
+- NVIDIA GPU (예: RTX 4060 / Ada Lovelace)
+- RAM 8 GB+
+
+---
+
+## 문제 해결
+
+### 1. YOLO 모델 자동 다운로드 실패
+HuggingFace Hub 접근이 막혀 있으면 `_ensure_model_exists` 가 `yolov8n.pt` 로 fallback 됩니다.
+수동 배치를 권장: `backend/license_plate_det_yolov8.pt` 에 직접 두세요.
+
+### 2. OCR 엔진이 모두 실패 → `OCR_NOT_AVAILABLE`
+- Pororo: `backend/pororo/` 디렉토리가 손상되지 않았는지 확인
+- Tesseract: `tesseract --list-langs | grep kor` 로 한국어 팩 확인
+- 엔진 명시 지정: `OCR_ENGINE=tesseract` 등으로 강제
+
+### 3. 한글이 결과 이미지에서 깨짐
+NanumGothic 또는 NotoSansCJK 폰트를 설치한 뒤 `fc-cache -fv` 실행.
+
+### 4. CUDA OOM
+```bash
+export GPU_MEMORY_FRACTION=0.5
+```
+또는 CPU 강제: 모델 로드 전 `CUDA_VISIBLE_DEVICES=""` 환경변수 설정.
+
+### 5. 업로드 415/413
+- 413: `MAX_UPLOAD_MB` 초과 → 환경변수로 상향 조정
+- 400: 확장자가 화이트리스트(`ALLOWED_EXTENSIONS`) 에 없음
+
+---
+
+## 추가 문서
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 시스템 아키텍처 (레이어, 데이터 모델, 보안, 배포)
+- [`docs/UML.md`](docs/UML.md) — UML 다이어그램 (Use Case, Component, Class, Sequence, Activity, State, ER, Deployment)
+
+---
+
+## 라이선스
+
+MIT — 자세한 내용은 [`LICENSE`](LICENSE) 파일 참조.

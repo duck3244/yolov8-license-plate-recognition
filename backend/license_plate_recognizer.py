@@ -12,7 +12,69 @@ import numpy as np
 import os
 import re
 import logging
-from typing import List, Tuple, Optional
+from functools import lru_cache
+from typing import List, Optional, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
+
+logger = logging.getLogger(__name__)
+
+# 한글 표시 가능한 폰트 후보 (Linux 우선, Windows/macOS fallback 포함)
+_KOREAN_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "C:/Windows/Fonts/malgun.ttf",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+)
+
+
+@lru_cache(maxsize=8)
+def _korean_font(size: int) -> Optional[ImageFont.FreeTypeFont]:
+    """크기별로 캐시된 한글 TTF 폰트를 반환. 모두 실패하면 None."""
+    for path in _KOREAN_FONT_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    logger.warning("한글 폰트를 찾지 못했습니다. 결과 이미지 텍스트가 깨질 수 있습니다.")
+    return None
+
+
+def draw_label_korean(
+    image_bgr: np.ndarray,
+    text: str,
+    org: Tuple[int, int],
+    font_size: int = 24,
+    color_bgr: Tuple[int, int, int] = (0, 255, 0),
+    bg_bgr: Optional[Tuple[int, int, int]] = (0, 0, 0),
+) -> np.ndarray:
+    """cv2.putText 대신 PIL로 한글 포함 텍스트를 그린다. BGR numpy 배열을 in-place 갱신."""
+    font = _korean_font(font_size)
+    pil_img = Image.fromarray(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
+
+    # PIL은 RGB
+    color_rgb = (color_bgr[2], color_bgr[1], color_bgr[0])
+
+    if font is None:
+        # 폰트가 없으면 OpenCV로 ASCII만 출력(한글은 깨짐)
+        draw.text(org, text, fill=color_rgb)
+    else:
+        # 가독성을 위해 텍스트 뒤에 반투명 배경 사각형
+        if bg_bgr is not None:
+            bbox = draw.textbbox(org, text, font=font)
+            pad = 4
+            draw.rectangle(
+                (bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad),
+                fill=(bg_bgr[2], bg_bgr[1], bg_bgr[0]),
+            )
+        draw.text(org, text, font=font, fill=color_rgb)
+
+    image_bgr[:] = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    return image_bgr
 
 try:
     import torch
@@ -21,55 +83,54 @@ except ImportError:
     HAS_TORCH = False
 
 # 의존성 체크 및 import
+# ultralytics/torch는 사실상 필수이지만 디버깅/단위 테스트 편의를 위해
+# 모듈 로드 자체는 실패시키지 않는다. 누락 시 logger.warning으로 알리고
+# 실제 사용 시점에 명확한 RuntimeError가 나오게 한다.
 try:
     from ultralytics import YOLO
     HAS_YOLO = True
 except ImportError:
-    print("⚠️ ultralytics가 설치되지 않았습니다. YOLOv8 기능이 제한됩니다.")
+    logger.warning("ultralytics가 설치되지 않아 YOLOv8 기능이 비활성화됩니다.")
     HAS_YOLO = False
 
 try:
     import pytesseract
     HAS_TESSERACT = True
 except ImportError:
-    print("⚠️ pytesseract가 설치되지 않았습니다. Tesseract OCR 기능이 제한됩니다.")
+    logger.warning("pytesseract가 설치되지 않아 Tesseract OCR이 비활성화됩니다.")
     HAS_TESSERACT = False
 
-# Pororo OCR 체크 (pororo-ocr 라이브러리 사용)
+# Pororo OCR 체크 (pororo-ocr 라이브러리 또는 vendored pororo)
 try:
     import prrocr
     HAS_PORORO = True
     HAS_ORIGINAL_PORORO = False
 except ImportError:
     try:
-        # 원본 Pororo도 체크 (fallback)
         from pororo import Pororo
         HAS_PORORO = True
         HAS_ORIGINAL_PORORO = True
     except ImportError:
-        print("⚠️ Pororo가 설치되지 않았습니다.")
-        print("   설치 방법 1: pip install pororo-ocr  (가벼운 OCR 전용)")
-        print("   설치 방법 2: pip install pororo      (전체 기능)")
+        logger.warning(
+            "Pororo OCR을 사용할 수 없습니다 "
+            "(pip install pororo-ocr 또는 vendored pororo 디렉토리 확인)."
+        )
         HAS_PORORO = False
         HAS_ORIGINAL_PORORO = False
 
-# PaddleOCR 체크
 try:
     from paddleocr import PaddleOCR
     HAS_PADDLEOCR = True
 except ImportError:
-    print("⚠️ PaddleOCR이 설치되지 않았습니다. 설치: pip install paddleocr")
+    logger.info("PaddleOCR 미설치 (선택 엔진).")
     HAS_PADDLEOCR = False
 
-# EasyOCR 체크
 try:
     import easyocr
     HAS_EASYOCR = True
 except ImportError:
-    print("⚠️ EasyOCR이 설치되지 않았습니다. 설치: pip install easyocr")
+    logger.info("EasyOCR 미설치 (선택 엔진).")
     HAS_EASYOCR = False
-
-logger = logging.getLogger(__name__)
 
 class YOLOv8LicensePlateRecognizer:
     """YOLOv8 기반 번호판 인식기 (고급 OpenCV 전처리 포함)"""
@@ -174,129 +235,76 @@ class YOLOv8LicensePlateRecognizer:
             logger.warning(f"번호판 전용 모델 다운로드 실패: {e}, yolov8n.pt fallback")
             return 'yolov8n.pt'
 
-    def _setup_ocr_engine(self, preferred_engine: str):
-        """OCR 엔진 설정"""
+    # ------- OCR 엔진 초기화 헬퍼 -------
+    def _init_pororo(self) -> bool:
+        if not HAS_PORORO:
+            return False
+        try:
+            if not HAS_ORIGINAL_PORORO:
+                self.pororo_ocr = prrocr.ocr(lang="ko")
+                logger.info("Pororo OCR (prrocr) 초기화 완료")
+            else:
+                self.pororo_ocr = Pororo(task="ocr", lang="ko", model="brainocr")
+                logger.info("Pororo OCR (원본) 초기화 완료")
+            return True
+        except Exception as e:
+            logger.warning(f"Pororo OCR 초기화 실패: {e}")
+            return False
 
-        # 특정 엔진 지정된 경우
-        if preferred_engine == 'pororo' and HAS_PORORO:
+    def _init_paddleocr(self) -> bool:
+        if not HAS_PADDLEOCR:
+            return False
+        # PaddleOCR 2.x/3.x 시그니처가 다르므로 단계적으로 시도한다.
+        attempts = [
+            dict(use_angle_cls=True, lang='korean'),
+            dict(use_angle_cls=True, lang='korean', show_log=False),
+            dict(lang='korean'),
+        ]
+        for kwargs in attempts:
             try:
-                if not HAS_ORIGINAL_PORORO:
-                    # pororo-ocr 라이브러리 사용
-                    self.pororo_ocr = prrocr.ocr(lang="ko")
-                    logger.info("Pororo OCR (prrocr) 초기화 완료")
-                    return 'pororo'
-                else:
-                    # 원본 Pororo 라이브러리 사용
-                    self.pororo_ocr = Pororo(task="ocr", lang="ko", model="brainocr")
-                    logger.info("Pororo OCR (원본) 초기화 완료")
-                    return 'pororo'
+                self.paddle_ocr = PaddleOCR(**kwargs)
+                logger.info(f"PaddleOCR 초기화 완료 ({kwargs})")
+                return True
             except Exception as e:
-                logger.warning(f"Pororo OCR 초기화 실패: {e}")
+                logger.debug(f"PaddleOCR 초기화 시도 실패 {kwargs}: {e}")
+        logger.warning("PaddleOCR 초기화 실패 (모든 옵션)")
+        return False
 
-        elif preferred_engine == 'paddleocr' and HAS_PADDLEOCR:
-            try:
-                # PaddleOCR 버전별 호환성 처리
-                try:
-                    # 최신 버전 시도 (show_log 파라미터 없음)
-                    self.paddle_ocr = PaddleOCR(
-                        use_angle_cls=True,
-                        lang='korean'
-                    )
-                    logger.info("PaddleOCR 초기화 완료 (최신 버전)")
-                    return 'paddleocr'
-                except Exception as e1:
-                    logger.debug(f"최신 PaddleOCR 초기화 실패: {e1}")
-                    try:
-                        # 구버전 시도 (show_log 파라미터 포함)
-                        self.paddle_ocr = PaddleOCR(
-                            use_angle_cls=True,
-                            lang='korean',
-                            show_log=False
-                        )
-                        logger.info("PaddleOCR 초기화 완료 (구버전)")
-                        return 'paddleocr'
-                    except Exception as e2:
-                        logger.debug(f"구버전 PaddleOCR 초기화 실패: {e2}")
-                        # 최소 설정으로 시도
-                        self.paddle_ocr = PaddleOCR(lang='korean')
-                        logger.info("PaddleOCR 초기화 완료 (최소 설정)")
-                        return 'paddleocr'
-            except Exception as e:
-                logger.warning(f"PaddleOCR 초기화 실패: {e}")
+    def _init_easyocr(self) -> bool:
+        if not HAS_EASYOCR:
+            return False
+        try:
+            self.easy_reader = easyocr.Reader(
+                ['ko', 'en'],
+                gpu=HAS_TORCH and torch.cuda.is_available(),
+                verbose=False,
+            )
+            logger.info("EasyOCR 초기화 완료")
+            return True
+        except Exception as e:
+            logger.warning(f"EasyOCR 초기화 실패: {e}")
+            return False
 
-        elif preferred_engine == 'easyocr' and HAS_EASYOCR:
-            try:
-                self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=HAS_TORCH and torch.cuda.is_available(), verbose=False)
-                logger.info("EasyOCR 초기화 완료")
-                return 'easyocr'
-            except Exception as e:
-                logger.warning(f"EasyOCR 초기화 실패: {e}")
+    def _setup_ocr_engine(self, preferred_engine: str) -> str:
+        """OCR 엔진 설정. 우선순위(또는 명시 엔진)에 따라 첫 번째 성공한 엔진을 반환."""
+        # (engine_name, init_callable)
+        init_map = {
+            'pororo': self._init_pororo,
+            'paddleocr': self._init_paddleocr,
+            'easyocr': self._init_easyocr,
+            'tesseract': lambda: HAS_TESSERACT,
+        }
 
-        elif preferred_engine == 'tesseract' and HAS_TESSERACT:
-            logger.info("Tesseract OCR 사용")
-            return 'tesseract'
+        if preferred_engine in init_map:
+            if init_map[preferred_engine]():
+                return preferred_engine
+            logger.warning(f"요청한 엔진({preferred_engine}) 사용 불가, auto fallback")
 
-        # Auto 모드: 우선순위에 따라 최적 엔진 선택
-        elif preferred_engine == 'auto':
-            # 1순위: Pororo (한국어 특화)
-            if HAS_PORORO:
-                try:
-                    if not HAS_ORIGINAL_PORORO:
-                        self.pororo_ocr = prrocr.ocr(lang="ko")
-                        logger.info("Auto 모드: Pororo OCR (prrocr) 선택됨")
-                        return 'pororo'
-                    else:
-                        self.pororo_ocr = Pororo(task="ocr", lang="ko", model="brainocr")
-                        logger.info("Auto 모드: Pororo OCR (원본) 선택됨")
-                        return 'pororo'
-                except Exception as e:
-                    logger.warning(f"Pororo OCR 초기화 실패: {e}")
-
-            # 2순위: PaddleOCR (높은 정확도)
-            if HAS_PADDLEOCR:
-                try:
-                    # PaddleOCR 버전별 호환성 처리
-                    try:
-                        # 최신 버전 시도
-                        self.paddle_ocr = PaddleOCR(
-                            use_angle_cls=True,
-                            lang='korean'
-                        )
-                        logger.info("Auto 모드: PaddleOCR 선택됨 (최신 버전)")
-                        return 'paddleocr'
-                    except Exception as e1:
-                        logger.debug(f"최신 PaddleOCR 초기화 실패: {e1}")
-                        try:
-                            # 구버전 시도
-                            self.paddle_ocr = PaddleOCR(
-                                use_angle_cls=True,
-                                lang='korean',
-                                show_log=False
-                            )
-                            logger.info("Auto 모드: PaddleOCR 선택됨 (구버전)")
-                            return 'paddleocr'
-                        except Exception as e2:
-                            logger.debug(f"구버전 PaddleOCR 초기화 실패: {e2}")
-                            # 최소 설정으로 시도
-                            self.paddle_ocr = PaddleOCR(lang='korean')
-                            logger.info("Auto 모드: PaddleOCR 선택됨 (최소 설정)")
-                            return 'paddleocr'
-                except Exception as e:
-                    logger.warning(f"PaddleOCR 초기화 실패: {e}")
-
-            # 3순위: EasyOCR (균형잡힌 성능)
-            if HAS_EASYOCR:
-                try:
-                    self.easy_reader = easyocr.Reader(['ko', 'en'], gpu=HAS_TORCH and torch.cuda.is_available(), verbose=False)
-                    logger.info("Auto 모드: EasyOCR 선택됨")
-                    return 'easyocr'
-                except Exception as e:
-                    logger.warning(f"EasyOCR 초기화 실패: {e}")
-
-            # 4순위: Tesseract (기본)
-            if HAS_TESSERACT:
-                logger.info("Auto 모드: Tesseract 선택됨")
-                return 'tesseract'
+        # Auto 모드 또는 명시 엔진 초기화 실패 시 우선순위 순회
+        for name in ('pororo', 'paddleocr', 'easyocr', 'tesseract'):
+            if init_map[name]():
+                logger.info(f"Auto 모드: {name} 선택됨")
+                return name
 
         logger.warning("사용 가능한 OCR 엔진이 없습니다.")
         return 'none'
@@ -1016,8 +1024,8 @@ class YOLOv8LicensePlateRecognizer:
                     # 임시 파일 삭제
                     try:
                         os.unlink(temp_path)
-                    except:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"임시 파일 삭제 실패: {temp_path} ({e})")
 
             else:
                 # pororo-ocr 라이브러리 사용 - numpy 배열 직접 처리 가능
@@ -1169,10 +1177,18 @@ class YOLOv8LicensePlateRecognizer:
                 x1, y1, x2, y2 = best_plate_info
                 cv2.rectangle(result_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-                # 텍스트 표시
-                label = f"{best_plate_text} ({best_confidence:.2f})" if best_plate_text else f"Detected ({best_confidence:.2f})"
-                cv2.putText(result_image, label, (x1, y1-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                # 텍스트 표시 — 한글 포함 가능하므로 PIL 기반 렌더러 사용
+                label = (
+                    f"{best_plate_text} ({best_confidence:.2f})"
+                    if best_plate_text
+                    else f"Detected ({best_confidence:.2f})"
+                )
+                # 텍스트 박스가 이미지 위쪽을 벗어나지 않도록 보정
+                text_y = max(y1 - 32, 4)
+                draw_label_korean(
+                    result_image, label, (x1, text_y),
+                    font_size=24, color_bgr=(0, 255, 0), bg_bgr=(0, 0, 0),
+                )
 
             # 모든 탐지된 영역 표시 (반투명)
             for plate in plates:
@@ -1270,8 +1286,8 @@ def main():
                 models = prrocr.ocr.get_available_models()
                 print(f"     지원 언어: {langs}")
                 print(f"     지원 모델: {models}")
-            except:
-                pass
+            except (AttributeError, ImportError) as e:
+                logger.debug(f"prrocr 메타데이터 조회 실패: {e}")
     print(f"   - PaddleOCR: {'✅' if HAS_PADDLEOCR else '❌'}")
     print(f"   - EasyOCR: {'✅' if HAS_EASYOCR else '❌'}")
     print(f"   - Tesseract: {'✅' if HAS_TESSERACT else '❌'}")

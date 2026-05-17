@@ -11,6 +11,8 @@ import torch.utils.data
 import torchvision.transforms as transforms
 from PIL import Image
 
+from pororo._compat import safe_torch_load
+
 from .model import Model
 from .utils import CTCLabelConverter
 
@@ -163,7 +165,7 @@ def get_recognizer(opt2val: dict):
     # state_dict
     rec_model_ckpt_fp = opt2val["rec_model_ckpt_fp"]
     device = opt2val["device"]
-    state_dict = torch.load(rec_model_ckpt_fp, map_location=device)
+    state_dict = safe_torch_load(rec_model_ckpt_fp, map_location=device)
 
     if device == "cuda":
         recognizer = torch.nn.DataParallel(recognizer).to(device)
